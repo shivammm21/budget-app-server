@@ -16,8 +16,25 @@ public class UserData {
     String name;
     String email;
     String password;
-    String income;
     String spend;
+    boolean showIncome = true; // Default to showing income
+    Double monthlyIncome = null; // Now nullable, no default
+
+    public Double getMonthlyIncome() {
+        return monthlyIncome;
+    }
+
+    public void setMonthlyIncome(Double monthlyIncome) {
+        this.monthlyIncome = monthlyIncome;
+    }
+
+    public boolean isShowIncome() {
+        return showIncome;
+    }
+
+    public void setShowIncome(boolean showIncome) {
+        this.showIncome = showIncome;
+    }
 
     public String getSpend() {
         return spend;
@@ -29,24 +46,6 @@ public class UserData {
 
     public void setSpend(String spend) {
         this.spend = spend;
-    }
-
-    public String getRemaining() {
-        return remaining;
-    }
-
-    public void setRemaining(String remaining) {
-        this.remaining = remaining;
-    }
-
-    String remaining;
-
-    public String getIncome() {
-        return income;
-    }
-
-    public void setIncome(String income) {
-        this.income = income;
     }
 
     public String getPassword() {
@@ -85,11 +84,10 @@ public class UserData {
     public String toString() {
         return "UserData{" +
                 "id=" + id +
-                "budegetId='" + budgetId + '\'' +
+                "budgetId='" + budgetId + '\'' +
                 ", name='" + name + '\'' +
                 ", email='" + email + '\'' +
                 ", password='" + password + '\'' +
-                ", income='" + income + '\'' +
                 '}';
     }
 
@@ -98,11 +96,11 @@ public class UserData {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         UserData userData = (UserData) o;
-        return Objects.equals(budgetId, userData.budgetId) && Objects.equals(id, userData.id) && Objects.equals(name, userData.name) && Objects.equals(email, userData.email) && Objects.equals(password, userData.password) && Objects.equals(income, userData.income);
+        return Objects.equals(budgetId, userData.budgetId) && Objects.equals(id, userData.id) && Objects.equals(name, userData.name) && Objects.equals(email, userData.email) && Objects.equals(password, userData.password);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, budgetId, name, email, password, income);
+        return Objects.hash(id, budgetId, name, email, password);
     }
 }

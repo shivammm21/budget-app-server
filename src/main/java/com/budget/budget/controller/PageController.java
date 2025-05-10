@@ -68,7 +68,11 @@ public class PageController {
         userData.setName(appConfig.encryptName(userData.getName()));
         userData.setEmail(appConfig.encryptEmail(userData.getEmail()));
         userData.setPassword(passwordEncoder.encode(userData.getPassword()));
-        userData.setIncome(appConfig.encryptAmount(userData.getIncome()));
+
+        // Only set monthlyIncome if provided (not null)
+        if (userData.getMonthlyIncome() == null) {
+            userData.setMonthlyIncome(null); // Explicitly set to null if not provided
+        }
 
         String email = userData.getEmail();
         //String username = email.substring(0, email.indexOf('@'));
@@ -83,13 +87,45 @@ public class PageController {
 
     @PostMapping("/add-spend")
     public ResponseEntity<String> addSpend(@RequestBody AddSpend addSpend) {
-
-
-        boolean isAdded = userService.addSpend(addSpend, addSpend.getUsername().substring(0, addSpend.getUsername().indexOf('@')));
-        if (isAdded) {
-            return ResponseEntity.ok("Spend added successfully.");
-        } else {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Error adding spend.");
+        try {
+            // Validate required fields
+            if (addSpend.getUsername() == null || addSpend.getUsername().isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Username is required");
+            }
+            
+            if (addSpend.getSpendAmt() == null || addSpend.getSpendAmt().isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Spend amount is required");
+            }
+            
+            if (addSpend.getCategory() == null || addSpend.getCategory().isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Category is required");
+            }
+            
+            // Set default place if missing
+            if (addSpend.getPlace() == null || addSpend.getPlace().isEmpty()) {
+                addSpend.setPlace("Home");
+            }
+            
+            // Add email suffix if not present
+            String username = addSpend.getUsername();
+            if (!username.contains("@")) {
+                username = username + "@gmail.com";
+                addSpend.setUsername(username);
+            }
+            
+            // Extract username without domain for database operations
+            String dbUsername = username.substring(0, username.indexOf('@'));
+            
+            boolean isAdded = userService.addSpend(addSpend, dbUsername);
+            if (isAdded) {
+                return ResponseEntity.ok("Spend added successfully.");
+            } else {
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Error adding spend.");
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Exception while adding spend: " + e.getMessage());
         }
     }
 
@@ -150,15 +186,27 @@ public class PageController {
     @PostMapping("/pay-split")
     public ResponseEntity<Map<String, String>> paySplit(@RequestBody Map<String, Object> requestData) {
         String username = (String) requestData.get("username");
+        String payerName = (String) requestData.get("payerName");
+        String category = (String) requestData.get("category");
+        String place = (String) requestData.get("place");
+        double spendAmt = ((Number) requestData.get("spendAmt")).doubleValue();
 
-        //List<Integer> entryIds = (List<Integer>) requestData.get("entryIds"); // IDs of entries to mark as paid
-        String payerName = (String) requestData.get("payerName"); // Extract payerName from request
-        String category = (String) requestData.get("category"); // Extract category from request
-        String place = (String) requestData.get("place"); // Extract place from request
-        double spendAmt = ((Number) requestData.get("spendAmt")).doubleValue(); // Extract spendAmt from request
+        // Fetch budgetId for the username
+        String email = username.contains("@") ? username : username + "@gmail.com";
+        UserData user = userService.findByEmail(appConfig.encryptEmail(email));
+        if (user == null) {
+            Map<String, String> response = new HashMap<>();
+            response.put("message", "User not found");
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+        }
+        // Remove '@budget' if present
+        String budgetId = appConfig.decryptUsername(user.getBudgetId());
+        if (budgetId.endsWith("@budget")) {
+            budgetId = budgetId.substring(0, budgetId.indexOf("@budget"));
+        }
 
-        // Call the updated service method with the new parameters
-        boolean updateSuccessful = userService.updatePendingPayments(username, payerName, category, place, spendAmt);
+        // Call the updated service method with the budgetId
+        boolean updateSuccessful = userService.updatePendingPayments(budgetId, payerName, category, place, spendAmt);
 
         Map<String, String> response = new HashMap<>();
         if (updateSuccessful) {
@@ -174,20 +222,39 @@ public class PageController {
 
     @GetMapping("/dashboard/{username}")
     public ResponseEntity<Map<String, Object>> paySplitSpend(@PathVariable String username) {
-       // String totalSpend = String.valueOf(userService.getTotalSpend(username));
-
-        String[] data = userService.getRemainingBalance(username);
-        String remainingBalance = data[0];
-        String name = data[1];
-        String totalSpend = data[2];
-
-        List<Map<String, Object>> pendingPayments = userService.getPendingPayments(username);
+        String totalSpend = String.valueOf(userService.getTotalSpend(username));
+        String name = userService.getUserName(username);
+        boolean showIncome = userService.getIncomeDisplayPreference(username);
+        Double monthlyIncome = userService.getMonthlyIncome(username);
 
         Map<String, Object> dashboardData = new HashMap<>();
         dashboardData.put("totalSpend", totalSpend);
-        dashboardData.put("remainingBalance", remainingBalance);
         dashboardData.put("userName", name);
-        dashboardData.put("pendingPayments", pendingPayments);
+        dashboardData.put("showIncome", showIncome);
+
+        // Only include monthlyIncome and remainingBalance if set
+        if (showIncome && monthlyIncome != null) {
+            dashboardData.put("monthlyIncome", String.valueOf(monthlyIncome));
+            double remainingBalance = monthlyIncome - Double.parseDouble(totalSpend);
+            dashboardData.put("remainingBalance", String.valueOf(remainingBalance));
+        }
+
+        List<Map<String, Object>> pendingPayments = userService.getPendingPayments(username);
+        // Decrypt fields for each pending payment
+        List<Map<String, Object>> decryptedPendingPayments = new ArrayList<>();
+        for (Map<String, Object> payment : pendingPayments) {
+            Map<String, Object> decrypted = new HashMap<>(payment);
+            try {
+                decrypted.put("spendAmt", appConfig.decryptAmount((String) payment.get("spendAmt")));
+                decrypted.put("place", appConfig.decryptString((String) payment.get("place")));
+                decrypted.put("category", appConfig.decryptString((String) payment.get("category")));
+                decrypted.put("payeruser", appConfig.decryptString((String) payment.get("payeruser")));
+            } catch (Exception e) {
+                // handle error or log
+            }
+            decryptedPendingPayments.add(decrypted);
+        }
+        dashboardData.put("pendingPayments", decryptedPendingPayments);
 
         return ResponseEntity.ok(dashboardData);
     }
@@ -224,6 +291,111 @@ public class PageController {
             e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
         }
+    }
+
+    @PostMapping("/toggle-income-display")
+    public ResponseEntity<Map<String, Object>> toggleIncomeDisplay(@RequestBody Map<String, Object> requestData) {
+        Map<String, Object> response = new HashMap<>();
+        
+        try {
+            // Extract username from request
+            String username = (String) requestData.get("username");
+            if (username == null || username.isEmpty()) {
+                response.put("success", false);
+                response.put("message", "Username is required");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            // Extract showIncome preference from request
+            Boolean showIncome = (Boolean) requestData.get("showIncome");
+            if (showIncome == null) {
+                response.put("success", false);
+                response.put("message", "showIncome preference is required");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            // Update user preference
+            boolean updated = userService.updateIncomeDisplayPreference(username, showIncome);
+            
+            if (updated) {
+                response.put("success", true);
+                response.put("message", "Income display preference updated successfully");
+                response.put("showIncome", showIncome);
+                return ResponseEntity.ok(response);
+            } else {
+                response.put("success", false);
+                response.put("message", "Failed to update income display preference");
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            response.put("success", false);
+            response.put("message", "Error: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    @PostMapping("/update-monthly-income")
+    public ResponseEntity<Map<String, Object>> updateMonthlyIncome(@RequestBody Map<String, Object> requestData) {
+        Map<String, Object> response = new HashMap<>();
+        
+        try {
+            // Extract username from request
+            String username = (String) requestData.get("username");
+            if (username == null || username.isEmpty()) {
+                response.put("success", false);
+                response.put("message", "Username is required");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            // Extract monthlyIncome from request
+            Double monthlyIncome = null;
+            try {
+                if (requestData.get("monthlyIncome") instanceof Number) {
+                    monthlyIncome = ((Number) requestData.get("monthlyIncome")).doubleValue();
+                } else if (requestData.get("monthlyIncome") instanceof String) {
+                    monthlyIncome = Double.parseDouble((String) requestData.get("monthlyIncome"));
+                }
+            } catch (Exception e) {
+                response.put("success", false);
+                response.put("message", "Invalid monthly income format");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            if (monthlyIncome == null || monthlyIncome < 0) {
+                response.put("success", false);
+                response.put("message", "Monthly income must be a positive number");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            // Update user's monthly income
+            boolean updated = userService.updateMonthlyIncome(username, monthlyIncome);
+            
+            if (updated) {
+                response.put("success", true);
+                response.put("message", "Monthly income updated successfully");
+                response.put("monthlyIncome", monthlyIncome);
+                return ResponseEntity.ok(response);
+            } else {
+                response.put("success", false);
+                response.put("message", "Failed to update monthly income");
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            response.put("success", false);
+            response.put("message", "Error: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    @GetMapping("/user-suggestions")
+    public ResponseEntity<List<String>> getUserSuggestions(@RequestParam("q") String query) {
+        if (query == null || query.trim().isEmpty()) {
+            return ResponseEntity.ok(new ArrayList<>());
+        }
+        List<String> suggestions = userService.getUserSuggestionsByEmail(query);
+        return ResponseEntity.ok(suggestions);
     }
 
 }
