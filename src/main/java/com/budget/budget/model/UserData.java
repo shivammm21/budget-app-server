@@ -19,6 +19,7 @@ public class UserData {
     String spend;
     boolean showIncome = true; // Default to showing income
     Double monthlyIncome = null; // Now nullable, no default
+    private String mobileNumber;
 
     public Double getMonthlyIncome() {
         return monthlyIncome;
@@ -80,14 +81,25 @@ public class UserData {
         this.id = id;
     }
 
+    public String getMobileNumber() {
+        return mobileNumber;
+    }
+
+    public void setMobileNumber(String mobileNumber) {
+        this.mobileNumber = mobileNumber;
+    }
+
     @Override
     public String toString() {
         return "UserData{" +
                 "id=" + id +
-                "budgetId='" + budgetId + '\'' +
                 ", name='" + name + '\'' +
                 ", email='" + email + '\'' +
                 ", password='" + password + '\'' +
+                ", budgetId='" + budgetId + '\'' +
+                ", monthlyIncome=" + monthlyIncome +
+                ", showIncome=" + showIncome +
+                ", mobileNumber='" + mobileNumber + '\'' +
                 '}';
     }
 

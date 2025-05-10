@@ -74,6 +74,11 @@ public class PageController {
             userData.setMonthlyIncome(null); // Explicitly set to null if not provided
         }
 
+        // Save mobile number if provided
+        if (userData.getMobileNumber() != null) {
+            userData.setMobileNumber(userData.getMobileNumber());
+        }
+
         String email = userData.getEmail();
         //String username = email.substring(0, email.indexOf('@'));
 
@@ -264,26 +269,99 @@ public class PageController {
 
     @GetMapping("/dashboard/history/{username}")
     public ResponseEntity<List<Map<String, Object>>> getUserHistory(@PathVariable String username) {
-        String query = "SELECT * FROM " + username + " WHERE payerbill = 'True'";
-
-        List<Map<String, Object>> history = new ArrayList<>();
-
         try {
+            // Fetch budgetId for the username
+            String email = username.contains("@") ? username : username + "@gmail.com";
+            UserData user = userService.findByEmail(appConfig.encryptEmail(email));
+            if (user == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
+            }
+            String budgetId = appConfig.decryptUsername(user.getBudgetId());
+            if (budgetId.endsWith("@budget")) {
+                budgetId = budgetId.substring(0, budgetId.indexOf("@budget"));
+            }
+            String query = "SELECT * FROM " + budgetId + " WHERE payerbill = 'True' ORDER BY created_at DESC";
+
+            List<Map<String, Object>> history = new ArrayList<>();
             List<Map<String, Object>> results = jdbcTemplate.queryForList(query);
 
             for (Map<String, Object> row : results) {
-                Map<String, Object> decryptedRow = new HashMap<>(row);
-
-                // Decrypt specific fields
                 try {
-                    decryptedRow.put("spendAmt", appConfig.decryptAmount((String) row.get("spendAmt")));
-                    decryptedRow.put("place", appConfig.decryptString((String) row.get("place")));
-                    decryptedRow.put("category", appConfig.decryptString((String) row.get("category")));
-                } catch (Exception e) {
-                    System.out.println("Error decrypting row: " + e.getMessage());
-                }
+                    Map<String, Object> decryptedRow = new HashMap<>(row);
 
-                history.add(decryptedRow);
+                    // Decrypt fields with null checks
+                    String spendAmt = (String) row.get("spendAmt");
+                    String place = (String) row.get("place");
+                    String category = (String) row.get("category");
+
+                    if (spendAmt != null) {
+                        try {
+                            decryptedRow.put("spendAmt", appConfig.decryptAmount(spendAmt));
+                        } catch (Exception e) {
+                            System.out.println("Error decrypting spendAmt: " + e.getMessage());
+                            decryptedRow.put("spendAmt", "0");
+                        }
+                    }
+
+                    if (place != null) {
+                        try {
+                            decryptedRow.put("place", appConfig.decryptString(place));
+                        } catch (Exception e) {
+                            System.out.println("Error decrypting place: " + e.getMessage());
+                            decryptedRow.put("place", "Unknown");
+                        }
+                    }
+
+                    if (category != null) {
+                        try {
+                            decryptedRow.put("category", appConfig.decryptString(category));
+                        } catch (Exception e) {
+                            System.out.println("Error decrypting category: " + e.getMessage());
+                            decryptedRow.put("category", "Uncategorized");
+                        }
+                    }
+
+                    // Fetch split users using encrypted values for comparison
+                    try {
+                        // Use the original encrypted values from the row for comparison
+                        String splitSql = "SELECT payeruser, payerbill FROM " + budgetId +
+                            " WHERE place = ? AND category = ? AND spendAmt = ?";
+                        List<Map<String, Object>> splits = jdbcTemplate.queryForList(
+                            splitSql,
+                            row.get("place"),  // Use original encrypted place
+                            row.get("category"),  // Use original encrypted category
+                            row.get("spendAmt")   // Use original encrypted spendAmt
+                        );
+                        List<Map<String, String>> splitUsers = new ArrayList<>();
+                        for (Map<String, Object> split : splits) {
+                            String payeruser = (String) split.get("payeruser");
+                            if (payeruser != null) {
+                                try {
+                                    // Decrypt the payeruser for display
+                                    String decryptedPayeruser = appConfig.decryptString(payeruser);
+                                    splitUsers.add(Map.of(
+                                        "user", decryptedPayeruser,
+                                        "status", (String) split.get("payerbill")
+                                    ));
+                                } catch (Exception e) {
+                                    System.out.println("Error decrypting payeruser: " + e.getMessage());
+                                    // Skip this split user if decryption fails
+                                    continue;
+                                }
+                            }
+                        }
+                        decryptedRow.put("splitUsers", splitUsers);
+                    } catch (Exception e) {
+                        System.out.println("Error fetching split users: " + e.getMessage());
+                        decryptedRow.put("splitUsers", new ArrayList<>());
+                    }
+
+                    history.add(decryptedRow);
+                } catch (Exception e) {
+                    System.out.println("Error processing row: " + e.getMessage());
+                    // Continue with next row instead of failing completely
+                    continue;
+                }
             }
 
             return ResponseEntity.ok(history);
@@ -395,7 +473,22 @@ public class PageController {
             return ResponseEntity.ok(new ArrayList<>());
         }
         List<String> suggestions = userService.getUserSuggestionsByEmail(query);
+        // If query is a 10-digit number, also search by mobile number
+        if (query.matches("\\d{10}")) {
+            suggestions.addAll(userService.getUserSuggestionsByMobile(query));
+        }
         return ResponseEntity.ok(suggestions);
+    }
+
+    @GetMapping("/user-id-by-mobile")
+    public ResponseEntity<String> getUserIdByMobile(@RequestParam("mobile") String mobile) {
+        UserData user = userService.findUserByMobile(mobile);
+        if (user != null) {
+            // Return the email (decrypted)
+            return ResponseEntity.ok(appConfig.decryptEmail(user.getEmail()));
+        } else {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("");
+        }
     }
 
 }

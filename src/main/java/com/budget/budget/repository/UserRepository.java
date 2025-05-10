@@ -15,5 +15,8 @@ public interface UserRepository extends JpaRepository<UserData,Long> {
     // Find users whose email contains a substring (for suggestions)
     List<UserData> findByEmailContaining(String emailPart);
 
+    // Find user by mobile number
+    UserData findByMobileNumber(String mobileNumber);
+
     //void saveUser(UserData userData);
 }

@@ -168,14 +168,22 @@ public class UserServices {
     public boolean splitExpense(String payerUsername,String place,String category, double totalAmount, List<String> participants) {
         try {
             // Calculate each participant's share
-            String splitUser = payerUsername.substring(0, payerUsername.indexOf('@'));
+            String splitUser;
+            if (payerUsername.contains("@")) {
+                splitUser = payerUsername.substring(0, payerUsername.indexOf('@'));
+            } else {
+                splitUser = payerUsername;
+            }
             double splitAmount = totalAmount / (participants.size() + 1);
             addUser(splitUser, splitAmount,place,category,"split = "+String.valueOf(participants.size()));
 
             // Update the balance for each participant except the payer
             for (String participantUsername : participants) {
-                if (!participantUsername.equals(payerUsername)) {
-                    String username = participantUsername.substring(0, participantUsername.indexOf('@'));
+                String username = participantUsername;
+                if (participantUsername.contains("@")) {
+                    username = participantUsername.substring(0, participantUsername.indexOf('@'));
+                }
+                if (!username.equals(splitUser)) {
                     splitUser(username, splitAmount,place,category,splitUser,"False");
                 }
             }
@@ -341,6 +349,20 @@ public class UserServices {
             suggestions.add(appConfig.decryptEmail(user.getEmail()));
         }
         return suggestions;
+    }
+
+    public List<String> getUserSuggestionsByMobile(String mobileNumber) {
+        List<String> suggestions = new ArrayList<>();
+        UserData user = userRepository.findByMobileNumber(mobileNumber);
+        if (user != null) {
+            String name = appConfig.decryptName(user.getName());
+            suggestions.add(name + " (" + user.getMobileNumber() + ")");
+        }
+        return suggestions;
+    }
+
+    public UserData findUserByMobile(String mobileNumber) {
+        return userRepository.findByMobileNumber(mobileNumber);
     }
 
 }
