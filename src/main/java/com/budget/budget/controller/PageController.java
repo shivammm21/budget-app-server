@@ -491,4 +491,49 @@ public class PageController {
         }
     }
 
+    @GetMapping("/expense-analysis/{username}")
+    public ResponseEntity<List<Map<String, Object>>> getExpenseAnalysis(@PathVariable String username) {
+        // Fetch budgetId for the username
+        String email = username.contains("@") ? username : username + "@gmail.com";
+        UserData user = userService.findByEmail(appConfig.encryptEmail(email));
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
+        }
+        String budgetId = appConfig.decryptUsername(user.getBudgetId());
+        if (budgetId.endsWith("@budget")) {
+            budgetId = budgetId.substring(0, budgetId.indexOf("@budget"));
+        }
+        String sql = "SELECT category, spendAmt FROM " + budgetId + " WHERE payerbill = 'True'";
+        try {
+            Map<String, Double> categoryTotals = new HashMap<>();
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql);
+            for (Map<String, Object> row : rows) {
+                String category;
+                double amount;
+                try {
+                    category = appConfig.decryptString((String) row.get("category"));
+                } catch (Exception e) {
+                    category = "Unknown";
+                }
+                try {
+                    amount = Double.parseDouble(appConfig.decryptAmount((String) row.get("spendAmt")));
+                } catch (Exception e) {
+                    amount = 0.0;
+                }
+                categoryTotals.put(category, categoryTotals.getOrDefault(category, 0.0) + amount);
+            }
+            List<Map<String, Object>> results = new ArrayList<>();
+            for (Map.Entry<String, Double> entry : categoryTotals.entrySet()) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("category", entry.getKey());
+                data.put("amount", entry.getValue());
+                results.add(data);
+            }
+            return ResponseEntity.ok(results);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+        }
+    }
+
 }
