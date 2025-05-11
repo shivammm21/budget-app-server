@@ -536,4 +536,42 @@ public class PageController {
         }
     }
 
+    @PostMapping("/reset-user-data")
+    public ResponseEntity<Map<String, Object>> resetUserData(@RequestBody Map<String, Object> requestData) {
+        Map<String, Object> response = new HashMap<>();
+        
+        try {
+            // Validate request
+            if (!requestData.containsKey("username") || requestData.get("username") == null) {
+                response.put("success", false);
+                response.put("message", "Username is required");
+                return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
+            }
+            
+            String username = (String) requestData.get("username");
+            
+            // Extract username without domain for database operations if it contains @
+            if (username.contains("@")) {
+                username = username.substring(0, username.indexOf('@'));
+            }
+            
+            boolean isReset = userService.resetUserData(username);
+            
+            if (isReset) {
+                response.put("success", true);
+                response.put("message", "User data has been reset successfully");
+                return new ResponseEntity<>(response, HttpStatus.OK);
+            } else {
+                response.put("success", false);
+                response.put("message", "Failed to reset user data");
+                return new ResponseEntity<>(response, HttpStatus.INTERNAL_SERVER_ERROR);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            response.put("success", false);
+            response.put("message", "An error occurred: " + e.getMessage());
+            return new ResponseEntity<>(response, HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
 }

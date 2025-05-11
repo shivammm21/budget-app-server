@@ -365,4 +365,25 @@ public class UserServices {
         return userRepository.findByMobileNumber(mobileNumber);
     }
 
+    public boolean resetUserData(String username) {
+        try {
+            String tableName = username;
+            if (!isValidUsername(tableName)) {
+                System.out.println("Invalid username format");
+                return false;
+            }
+
+            // Delete all records from user's table
+            String sql = "DELETE FROM " + tableName;
+            jdbcTemplate.update(sql);
+            
+            System.out.println("Successfully reset data for user: " + tableName);
+            return true;
+        } catch (Exception e) {
+            System.out.println("Error resetting user data: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+
 }
